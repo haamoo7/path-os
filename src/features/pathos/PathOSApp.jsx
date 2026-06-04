@@ -455,20 +455,25 @@ export default function PathOSApp() {
     setAuthLoading(true);
 
     try {
+      let nextSessionBundle = null;
+
       if (authMode === "signup") {
-        await signUpWithEmail({
+        nextSessionBundle = await signUpWithEmail({
           email: authForm.email.trim(),
           password: authForm.password,
           name: authForm.name.trim(),
         });
       } else {
-        await signInWithEmail({
+        nextSessionBundle = await signInWithEmail({
           email: authForm.email.trim(),
           password: authForm.password,
         });
       }
 
-      const nextSessionBundle = await getSessionBundle();
+      if (!nextSessionBundle) {
+        nextSessionBundle = await getSessionBundle();
+      }
+
       if (!nextSessionBundle) {
         throw new Error(
           authMode === "signup"

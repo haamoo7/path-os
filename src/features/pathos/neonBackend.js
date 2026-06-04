@@ -17,17 +17,21 @@ function unwrap(result, fallbackMessage) {
   return result;
 }
 
-export async function getSessionBundle() {
-  const client = getNeonClient();
-  const result = unwrap(await client.auth.getSession(), "Couldn't load your PathOS session.");
+function toSessionBundle(result) {
   const session = result?.data?.session || null;
   const user = result?.data?.user || null;
   return session && user ? { session, user } : null;
 }
 
+export async function getSessionBundle() {
+  const client = getNeonClient();
+  const result = unwrap(await client.auth.getSession(), "Couldn't load your PathOS session.");
+  return toSessionBundle(result);
+}
+
 export async function signUpWithEmail({ email, password, name }) {
   const client = getNeonClient();
-  unwrap(
+  const result = unwrap(
     await client.auth.signUp.email({
       email,
       password,
@@ -35,17 +39,19 @@ export async function signUpWithEmail({ email, password, name }) {
     }),
     "Couldn't create your account."
   );
+  return toSessionBundle(result);
 }
 
 export async function signInWithEmail({ email, password }) {
   const client = getNeonClient();
-  unwrap(
+  const result = unwrap(
     await client.auth.signIn.email({
       email,
       password,
     }),
     "Couldn't sign you in."
   );
+  return toSessionBundle(result);
 }
 
 export async function signInWithGoogle({ callbackURL }) {
