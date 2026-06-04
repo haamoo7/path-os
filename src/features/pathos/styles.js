@@ -10,6 +10,9 @@ export const PATHOS_CSS = `
 .px-logo span{color:${PAL.ink};font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;margin-left:8px;}
 .px-rolechip{font-size:12px;background:${PAL.paperDark};border-radius:20px;padding:5px 12px;display:flex;gap:8px;align-items:center;}
 .px-rolechip button{border:none;background:none;color:${PAL.terra};font-weight:600;cursor:pointer;font-size:12px;}
+.px-chipmini{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:${PAL.creamMid};font-size:11px;color:${PAL.inkSoft};}
+.px-chipmini.ok{background:${PAL.goodBg};color:${PAL.good};}
+.px-chipmini.err{background:${PAL.gapBg};color:${PAL.gap};}
 /* login */
 .px-login{max-width:880px;margin:0 auto;padding:2.5rem 1.5rem 3rem;}
 .px-login h1{font-family:'Fredoka';font-weight:700;font-size:32px;text-align:center;margin-bottom:.3rem;}
@@ -26,6 +29,12 @@ export const PATHOS_CSS = `
 .px-signin .card{background:${PAL.paper};border:2px solid ${PAL.ink};border-radius:16px;padding:2rem;}
 .px-signin .ic{font-size:40px;text-align:center;}
 .px-signin h2{font-family:'Fredoka';font-weight:700;font-size:22px;text-align:center;margin:.5rem 0 1.25rem;}
+.px-role-note{text-align:center;font-size:12px;color:${PAL.tealDark};font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:-.55rem 0 1rem;}
+.px-alert{margin-bottom:1rem;padding:10px 12px;border:1.5px solid #dfb6ac;border-radius:10px;background:${PAL.gapBg};color:${PAL.gap};font-size:12.5px;line-height:1.55;}
+.px-alert.warn{background:${PAL.warnBg};border-color:#e5d39d;color:${PAL.goldDeep};}
+.px-auth-switch{text-align:center;font-size:12px;color:${PAL.inkSoft};margin-top:12px;line-height:1.5;}
+.px-linkbtn{border:none;background:none;color:${PAL.terra};font:inherit;font-weight:600;cursor:pointer;padding:0;}
+.px-linkbtn:hover{text-decoration:underline;}
 /* generic */
 .px-field{margin-bottom:1.1rem;}
 .px-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${PAL.tealDark};margin-bottom:5px;}
@@ -34,6 +43,13 @@ export const PATHOS_CSS = `
 .px-field textarea{resize:vertical;min-height:74px;line-height:1.5;}
 .px-go{width:100%;padding:13px;background:${PAL.terra};color:#fff;border:none;border-radius:10px;font-family:'Fredoka';font-weight:600;font-size:15px;cursor:pointer;}
 .px-go:hover:not(:disabled){background:${PAL.terraDark};}.px-go:disabled{opacity:.5;cursor:not-allowed;}
+.px-google-btn{width:100%;margin-top:10px;padding:11px 14px;border:1.5px solid #dadce0;border-radius:10px;background:#fff;color:#3c4043;font-family:'DM Sans',system-ui,sans-serif;font-weight:500;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 1px 2px rgba(60,64,67,.1);}
+.px-google-btn:hover:not(:disabled){background:#f8f9fa;border-color:#c7c9cc;box-shadow:0 1px 3px rgba(60,64,67,.18);}
+.px-google-btn:focus-visible{outline:2px solid #1a73e8;outline-offset:2px;}
+.px-google-btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none;}
+.px-google-mark{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;}
+.px-google-mark svg{display:block;width:20px;height:20px;}
+.px-google-text{line-height:1;}
 .px-card{background:${PAL.paper};border:2px solid ${PAL.ink};border-radius:16px;padding:1.5rem;}
 .px-skillrow{display:flex;gap:6px;}.px-skillrow input{flex:1;}
 .px-add{padding:8px 14px;border:1.5px solid ${PAL.creamLow};border-radius:8px;background:${PAL.paperDark};font:inherit;font-weight:500;font-size:13px;cursor:pointer;}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   APPLICANTS_SEED,
   APP_STATUSES,
@@ -25,18 +25,103 @@ import { Bars, Donut, St } from "./charts.jsx";
 import { LANDMARKS, Landmark, Tree, layoutNodes, mulberry, segPath, slug } from "./journey.jsx";
 import PostJobForm from "./components/PostJobForm.jsx";
 import { PATHOS_CSS } from "./styles.js";
+import { neonConfigError, neonEnabled } from "../../lib/neon";
+import {
+  fetchAccountProfile,
+  getSessionBundle,
+  signInWithEmail,
+  signInWithGoogle,
+  signOutAccount,
+  signUpWithEmail,
+  upsertAccountProfile,
+} from "./neonBackend";
+
+const DEFAULT_CURRENT_ROLE = "Commercial Manager";
+const DEFAULT_TARGET_ROLE = "CEO of a Creative Agency";
+const OAUTH_CONTEXT_KEY = "pathos-google-oauth-context";
+
+const createAuthForm = () => ({
+  name: "",
+  email: "",
+  password: "",
+  organization: "",
+});
+
+const readOAuthContext = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(OAUTH_CONTEXT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeOAuthContext = (context) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(OAUTH_CONTEXT_KEY, JSON.stringify(context));
+};
+
+const clearOAuthContext = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.removeItem(OAUTH_CONTEXT_KEY);
+};
+
+const normalizeWorkspace = (workspace = {}) => ({
+  currentRole: typeof workspace.currentRole === "string" && workspace.currentRole.trim() ? workspace.currentRole : DEFAULT_CURRENT_ROLE,
+  experience: typeof workspace.experience === "string" ? workspace.experience : "",
+  education: typeof workspace.education === "string" ? workspace.education : "",
+  skills: Array.isArray(workspace.skills) ? workspace.skills : [],
+  targetRole: typeof workspace.targetRole === "string" && workspace.targetRole.trim() ? workspace.targetRole : DEFAULT_TARGET_ROLE,
+  targetIndustry: typeof workspace.targetIndustry === "string" ? workspace.targetIndustry : "",
+  data: workspace.data || null,
+  done: Array.isArray(workspace.done) ? workspace.done : [],
+  profile: workspace.profile || null,
+  openToWork: typeof workspace.openToWork === "boolean" ? workspace.openToWork : true,
+  assess: workspace.assess && typeof workspace.assess === "object" ? workspace.assess : {},
+  assessOut: workspace.assessOut || null,
+  apps: Array.isArray(workspace.apps) ? workspace.apps : APPS_SEED,
+  appView: workspace.appView === "one" ? "one" : "all",
+  appSel: typeof workspace.appSel === "string" ? workspace.appSel : null,
+  view: typeof workspace.view === "string" ? workspace.view : "profile",
+  cView: typeof workspace.cView === "string" ? workspace.cView : "dashboard",
+  uView: typeof workspace.uView === "string" ? workspace.uView : "graduates",
+  postedJobs: Array.isArray(workspace.postedJobs) ? workspace.postedJobs : JOBS_SEED,
+  hhFilter: typeof workspace.hhFilter === "string" ? workspace.hhFilter : "",
+  applicants: Array.isArray(workspace.applicants) ? workspace.applicants : APPLICANTS_SEED,
+});
 
 export default function PathOSApp() {
   const [role, setRole] = useState(null); // null | seeker | company | university
   const [loginRole, setLoginRole] = useState(null);
+  const [authReady, setAuthReady] = useState(!neonEnabled);
+  const [authMode, setAuthMode] = useState("signin");
+  const [authForm, setAuthForm] = useState(createAuthForm());
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [saveState, setSaveState] = useState("idle");
+  const [sessionBundle, setSessionBundle] = useState(null);
+  const [accountName, setAccountName] = useState("");
+  const [accountOrg, setAccountOrg] = useState("");
+  const saveResetRef = useRef(null);
+  const lastPersistedRef = useRef("");
 
   // seeker — inputs
-  const [currentRole, setCurrentRole] = useState("Commercial Manager");
+  const [currentRole, setCurrentRole] = useState(DEFAULT_CURRENT_ROLE);
   const [experience, setExperience] = useState("");
   const [education, setEducation] = useState("");
   const [skills, setSkills] = useState([]);
   const [skillInput, setSkillInput] = useState("");
-  const [targetRole, setTargetRole] = useState("CEO of a Creative Agency");
+  const [targetRole, setTargetRole] = useState(DEFAULT_TARGET_ROLE);
   const [targetIndustry, setTargetIndustry] = useState("");
   // seeker — analysis lifecycle
   const [status, setStatus] = useState("idle");
@@ -72,6 +157,397 @@ export default function PathOSApp() {
 
   const streamEnd = useRef(null);
   useEffect(() => { streamEnd.current?.scrollTo(0, 9e9); }, [stream]);
+
+  const workspaceSnapshot = useMemo(
+    () => normalizeWorkspace({
+      currentRole,
+      experience,
+      education,
+      skills,
+      targetRole,
+      targetIndustry,
+      data,
+      done: Array.from(done),
+      profile,
+      openToWork,
+      assess,
+      assessOut,
+      apps,
+      appView,
+      appSel,
+      view,
+      cView,
+      uView,
+      postedJobs,
+      hhFilter,
+      applicants,
+    }),
+    [
+      currentRole,
+      experience,
+      education,
+      skills,
+      targetRole,
+      targetIndustry,
+      data,
+      done,
+      profile,
+      openToWork,
+      assess,
+      assessOut,
+      apps,
+      appView,
+      appSel,
+      view,
+      cView,
+      uView,
+      postedJobs,
+      hhFilter,
+      applicants,
+    ]
+  );
+
+  const persistableAccount = useMemo(() => {
+    if (!sessionBundle?.user?.id || !role) {
+      return null;
+    }
+
+    return {
+      user_id: sessionBundle.user.id,
+      email: sessionBundle.user.email || "",
+      full_name:
+        accountName.trim() ||
+        sessionBundle.user.name ||
+        sessionBundle.user.email?.split("@")[0] ||
+        "PathOS user",
+      app_role: role,
+      organization: accountOrg.trim() || null,
+      workspace: workspaceSnapshot,
+    };
+  }, [accountName, accountOrg, role, sessionBundle, workspaceSnapshot]);
+
+  const resetWorkspace = () => {
+    const defaults = normalizeWorkspace();
+    setRole(null);
+    setLoginRole(null);
+    setCurrentRole(defaults.currentRole);
+    setExperience(defaults.experience);
+    setEducation(defaults.education);
+    setSkills(defaults.skills);
+    setSkillInput("");
+    setTargetRole(defaults.targetRole);
+    setTargetIndustry(defaults.targetIndustry);
+    setStatus("idle");
+    setStream("");
+    setData(defaults.data);
+    setError("");
+    setSelected(null);
+    setDone(new Set(defaults.done));
+    setEditPath(false);
+    setProfile(defaults.profile);
+    setParseStatus("idle");
+    setParseError("");
+    setPasteText("");
+    setShareMsg("");
+    setOpenToWork(defaults.openToWork);
+    setAssess(defaults.assess);
+    setAssessOut(defaults.assessOut);
+    setAssessLoading(false);
+    setApps(defaults.apps);
+    setAppView(defaults.appView);
+    setAppSel(defaults.appSel);
+    setView(defaults.view);
+    setCView(defaults.cView);
+    setUView(defaults.uView);
+    setPostedJobs(defaults.postedJobs);
+    setHhFilter(defaults.hhFilter);
+    setApplicants(defaults.applicants);
+  };
+
+  const applyAccountProfile = (account, nextSessionBundle) => {
+    const normalized = normalizeWorkspace(account?.workspace);
+    const nextRole = account?.app_role || loginRole || "seeker";
+
+    setSessionBundle(nextSessionBundle);
+    setRole(nextRole);
+    setLoginRole(null);
+    setAccountName(
+      account?.full_name ||
+      nextSessionBundle?.user?.name ||
+      nextSessionBundle?.user?.email?.split("@")[0] ||
+      ""
+    );
+    setAccountOrg(account?.organization || "");
+    setCurrentRole(normalized.currentRole);
+    setExperience(normalized.experience);
+    setEducation(normalized.education);
+    setSkills(normalized.skills);
+    setSkillInput("");
+    setTargetRole(normalized.targetRole);
+    setTargetIndustry(normalized.targetIndustry);
+    setStatus("idle");
+    setStream("");
+    setData(normalized.data);
+    setError("");
+    setSelected(null);
+    setDone(new Set(normalized.done));
+    setEditPath(false);
+    setProfile(normalized.profile);
+    setParseStatus("idle");
+    setParseError("");
+    setPasteText("");
+    setShareMsg("");
+    setOpenToWork(normalized.openToWork);
+    setAssess(normalized.assess);
+    setAssessOut(normalized.assessOut);
+    setAssessLoading(false);
+    setApps(normalized.apps);
+    setAppView(normalized.appView);
+    setAppSel(normalized.appSel);
+    setView(normalized.view);
+    setCView(normalized.cView);
+    setUView(normalized.uView);
+    setPostedJobs(normalized.postedJobs);
+    setHhFilter(normalized.hhFilter);
+    setApplicants(normalized.applicants);
+
+    lastPersistedRef.current = JSON.stringify({
+      user_id: nextSessionBundle?.user?.id || "",
+      email: nextSessionBundle?.user?.email || "",
+      full_name:
+        account?.full_name ||
+        nextSessionBundle?.user?.name ||
+        nextSessionBundle?.user?.email?.split("@")[0] ||
+        "PathOS user",
+      app_role: nextRole,
+      organization: account?.organization || null,
+      workspace: normalized,
+    });
+  };
+
+  const hydrateAccount = async (nextSessionBundle, hints = {}) => {
+    const existingAccount = await fetchAccountProfile(nextSessionBundle.user.id);
+    const account = existingAccount || {
+      user_id: nextSessionBundle.user.id,
+      email: nextSessionBundle.user.email || "",
+      full_name:
+        hints.name ||
+        nextSessionBundle.user.name ||
+        nextSessionBundle.user.email?.split("@")[0] ||
+        "PathOS user",
+      app_role: hints.role || loginRole || "seeker",
+      organization: hints.organization || null,
+      workspace: normalizeWorkspace(),
+    };
+
+    if (!existingAccount) {
+      await upsertAccountProfile(account);
+    }
+
+    applyAccountProfile(account, nextSessionBundle);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSession = async () => {
+      if (!neonEnabled) {
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        const oauthContext = readOAuthContext();
+        const nextSessionBundle = await getSessionBundle();
+        if (cancelled) {
+          return;
+        }
+
+        if (!nextSessionBundle) {
+          resetWorkspace();
+          setSessionBundle(null);
+          setAuthReady(true);
+          return;
+        }
+
+        await hydrateAccount(nextSessionBundle, oauthContext || {});
+        if (!cancelled) {
+          clearOAuthContext();
+          setAuthReady(true);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAuthError(err.message);
+          setAuthReady(true);
+        }
+      }
+    };
+
+    loadSession();
+
+    return () => {
+      cancelled = true;
+      if (saveResetRef.current) {
+        clearTimeout(saveResetRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!persistableAccount || !neonEnabled || !authReady) {
+      return undefined;
+    }
+
+    const serialized = JSON.stringify(persistableAccount);
+    if (serialized === lastPersistedRef.current) {
+      return undefined;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setSaveState("saving");
+        await upsertAccountProfile(persistableAccount);
+        lastPersistedRef.current = serialized;
+        setSaveState("saved");
+
+        if (saveResetRef.current) {
+          clearTimeout(saveResetRef.current);
+        }
+
+        saveResetRef.current = setTimeout(() => setSaveState("idle"), 1600);
+      } catch (err) {
+        setSaveState("error");
+        setAuthError(err.message);
+      }
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [authReady, persistableAccount]);
+
+  const updateAuthForm = (field, value) => {
+    setAuthForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleAuthSubmit = async (event) => {
+    event.preventDefault();
+    setAuthError("");
+
+    if (!neonEnabled) {
+      setAuthError(neonConfigError);
+      return;
+    }
+
+    if (!authForm.email.trim() || !authForm.password.trim()) {
+      setAuthError("Email and password are required.");
+      return;
+    }
+
+    if (authMode === "signup" && !loginRole) {
+      setAuthError("Choose whether this account is for a job seeker, company, or university first.");
+      return;
+    }
+
+    if (authMode === "signup" && !authForm.name.trim()) {
+      setAuthError("Add a name before creating your account.");
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      if (authMode === "signup") {
+        await signUpWithEmail({
+          email: authForm.email.trim(),
+          password: authForm.password,
+          name: authForm.name.trim(),
+        });
+      } else {
+        await signInWithEmail({
+          email: authForm.email.trim(),
+          password: authForm.password,
+        });
+      }
+
+      const nextSessionBundle = await getSessionBundle();
+      if (!nextSessionBundle) {
+        throw new Error(
+          authMode === "signup"
+            ? "Account created, but Neon did not return a session. If email verification is enabled, verify the account and sign in again."
+            : "Signed in, but no session was returned."
+        );
+      }
+
+      await hydrateAccount(nextSessionBundle, {
+        name: authForm.name.trim(),
+        organization: authForm.organization.trim(),
+        role: loginRole || role || "seeker",
+      });
+
+      setAuthForm(createAuthForm());
+      setAuthMode("signin");
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+      setAuthReady(true);
+    }
+  };
+
+  const handleGoogleAuth = async () => {
+    setAuthError("");
+
+    if (!neonEnabled) {
+      setAuthError(neonConfigError);
+      return;
+    }
+
+    if (!loginRole) {
+      setAuthError("Choose whether this account is for a job seeker, company, or university first.");
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      writeOAuthContext({
+        role: loginRole || role || "seeker",
+        name: authForm.name.trim(),
+        organization: authForm.organization.trim(),
+      });
+
+      await signInWithGoogle({
+        callbackURL: `${window.location.origin}${window.location.pathname}`,
+      });
+    } catch (err) {
+      setAuthError(err.message);
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      if (neonEnabled) {
+        await signOutAccount();
+      }
+    } catch (err) {
+      setAuthError(err.message);
+    }
+
+    if (saveResetRef.current) {
+      clearTimeout(saveResetRef.current);
+    }
+
+    lastPersistedRef.current = "";
+    clearOAuthContext();
+    setSaveState("idle");
+    setSessionBundle(null);
+    setAccountName("");
+    setAccountOrg("");
+    setAuthMode("signin");
+    setAuthForm(createAuthForm());
+    resetWorkspace();
+    setAuthReady(true);
+  };
 
   const addSkill = () => { const s = skillInput.trim(); if (s && !skills.includes(s)) setSkills(p => [...p, s]); setSkillInput(""); };
   const removeSkill = (s) => setSkills(p => p.filter(x => x !== s));
@@ -146,7 +622,7 @@ export default function PathOSApp() {
   /* profile badges */
   const skillsList = profile?.skills?.length ? profile.skills : skills;
   const certBadges = profile?.certificates || [];
-  const earnedJourneyBadges = milestones.filter((m, i) => done.has(i)).map(m => ({ title: m.skill_unlocked || m.name, story: `Earned at "${m.name}" on your journey.`, metric:"Journey milestone" }));
+  const earnedJourneyBadges = milestones.filter((_, i) => done.has(i)).map(m => ({ title: m.skill_unlocked || m.name, story: `Earned at "${m.name}" on your journey.`, metric:"Journey milestone" }));
   const achievementBadges = [...(profile?.achievements || []), ...earnedJourneyBadges];
   const recCertBadges = data?.cert_recommendations || [];
   const expList = profile?.experience || [];
@@ -176,29 +652,53 @@ export default function PathOSApp() {
   const setAppStatus = (id, st) => setApps(p => p.map(a => a.id === id ? { ...a, status: st } : a));
 
   /* ── role landing / login ── */
+  if (!authReady) {
+    return (<><style>{PATHOS_CSS}</style><div className="px"><div className="px-state"><div className="px-spin"/><h3>Connecting your account…</h3><p>Checking Neon authentication and loading your saved PathOS workspace.</p></div></div></>);
+  }
+
   if (!role) {
     return (<><style>{PATHOS_CSS}</style><div className="px">
       <div className="px-head"><div className="px-logo">PathOS<span>Career Intelligence</span></div><div className="px-tagline" style={{fontSize:12,color:PAL.tealDark}}>One platform · three roles</div></div>
       {!loginRole ? (
         <div className="px-login">
           <h1>Welcome to PathOS</h1>
-          <p className="sub">Choose how you're signing in. Each role has its own workspace.</p>
+          <p className="sub">Choose the workspace you want to connect to Neon. Each account keeps its own saved data and authentication session.</p>
           <div className="px-roles">
-            <div className="px-role" onClick={() => setLoginRole("seeker")}><div className="ic">🧭</div><h3>Job Seeker</h3><p>Build a living profile, map your path to any role, track applications, and find aligned jobs.</p><div className="go">Sign in →</div></div>
-            <div className="px-role" onClick={() => setLoginRole("company")}><div className="ic">🏢</div><h3>Company</h3><p>Post jobs, headhunt candidates before they apply, run team assessments, and manage your hiring pipeline.</p><div className="go">Sign in →</div></div>
-            <div className="px-role" onClick={() => setLoginRole("university")}><div className="ic">🎓</div><h3>University</h3><p>Track graduate outcomes, map syllabus skills, and see employment analytics across batches.</p><div className="go">Sign in →</div></div>
+            <div className="px-role" onClick={() => { setLoginRole("seeker"); setAuthMode("signup"); setAuthError(""); }}><div className="ic">🧭</div><h3>Job Seeker</h3><p>Build a living profile, map your path to any role, track applications, and find aligned jobs.</p><div className="go">Use seeker account →</div></div>
+            <div className="px-role" onClick={() => { setLoginRole("company"); setAuthMode("signup"); setAuthError(""); }}><div className="ic">🏢</div><h3>Company</h3><p>Post jobs, headhunt candidates before they apply, run team assessments, and manage your hiring pipeline.</p><div className="go">Use company account →</div></div>
+            <div className="px-role" onClick={() => { setLoginRole("university"); setAuthMode("signup"); setAuthError(""); }}><div className="ic">🎓</div><h3>University</h3><p>Track graduate outcomes, map syllabus skills, and see employment analytics across batches.</p><div className="go">Use university account →</div></div>
           </div>
         </div>
       ) : (
-        <div className="px-signin"><div className="card">
+        <div className="px-signin"><form className="card" onSubmit={handleAuthSubmit}>
           <div className="ic">{loginRole === "seeker" ? "🧭" : loginRole === "company" ? "🏢" : "🎓"}</div>
-          <h2>{loginRole === "seeker" ? "Job Seeker" : loginRole === "company" ? "Company" : "University"} sign in</h2>
-          <div className="px-field"><label>{loginRole === "company" ? "Work email" : loginRole === "university" ? "Institution email" : "Email"}</label><input placeholder={loginRole === "company" ? "you@company.com" : loginRole === "university" ? "you@university.edu" : "you@email.com"} /></div>
-          <div className="px-field"><label>Organisation {loginRole === "seeker" ? "(optional)" : ""}</label><input placeholder={loginRole === "company" ? "e.g. Hatch & Co" : loginRole === "university" ? "e.g. Universiti Malaya" : "Current employer"} /></div>
-          <button className="px-go" onClick={() => { setRole(loginRole); if (loginRole === "seeker") setView("profile"); }}>Continue as {loginRole} →</button>
-          <button className="px-pill-btn" style={{ width:"100%", marginTop:10 }} onClick={() => setLoginRole(null)}>← Back</button>
-          <p className="px-mini" style={{ textAlign:"center", marginTop:12 }}>Demo sign-in — no password needed.</p>
-        </div></div>
+          <h2>{authMode === "signup" ? "Create your PathOS account" : "Sign in to PathOS"}</h2>
+          <p className="px-role-note">Workspace: {loginRole === "seeker" ? "Job Seeker" : loginRole === "company" ? "Company" : "University"}</p>
+          {!neonEnabled && <div className="px-alert warn">{neonConfigError}</div>}
+          {authError && <div className="px-alert">{authError}</div>}
+          {authMode === "signup" && (
+            <>
+              <div className="px-field"><label>Full name</label><input value={authForm.name} onChange={(e) => updateAuthForm("name", e.target.value)} placeholder={loginRole === "company" ? "Hiring manager name" : loginRole === "university" ? "Programme lead name" : "Your full name"} /></div>
+              <div className="px-field"><label>Organisation {loginRole === "seeker" ? "(optional)" : ""}</label><input value={authForm.organization} onChange={(e) => updateAuthForm("organization", e.target.value)} placeholder={loginRole === "company" ? "e.g. Hatch & Co" : loginRole === "university" ? "e.g. Universiti Malaya" : "Current employer"} /></div>
+            </>
+          )}
+          <div className="px-field"><label>{loginRole === "company" ? "Work email" : loginRole === "university" ? "Institution email" : "Email"}</label><input type="email" value={authForm.email} onChange={(e) => updateAuthForm("email", e.target.value)} placeholder={loginRole === "company" ? "you@company.com" : loginRole === "university" ? "you@university.edu" : "you@email.com"} autoComplete="email" /></div>
+          <div className="px-field"><label>Password</label><input type="password" value={authForm.password} onChange={(e) => updateAuthForm("password", e.target.value)} placeholder="Use at least 8 characters" autoComplete={authMode === "signup" ? "new-password" : "current-password"} /></div>
+          <button className="px-go" type="submit" disabled={authLoading || !neonEnabled}>{authLoading ? "Connecting…" : authMode === "signup" ? "Create account & continue →" : "Sign in & load workspace →"}</button>
+          <button className="px-google-btn" type="button" onClick={handleGoogleAuth} disabled={authLoading || !neonEnabled}>
+            <span className="px-google-mark" aria-hidden="true">
+              <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                <path fill="#4285F4" d="M17.64 9.2045c0-.6382-.0573-1.2518-.1636-1.8409H9v3.4818h4.8436c-.2087 1.125-.8427 2.0782-1.7968 2.7164v2.2582h2.9086c1.7018-1.5664 2.6846-3.8741 2.6846-6.6155z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.4673-.8064 5.9564-2.1791l-2.9086-2.2582c-.8064.54-1.8377.8591-3.0477.8591-2.3441 0-4.3282-1.5832-5.0373-3.7091H.9573v2.3291C2.4382 15.9832 5.4818 18 9 18z"/>
+                <path fill="#FBBC05" d="M3.9627 10.7127C3.7827 10.1727 3.6818 9.5959 3.6818 9s.1009-1.1727.2809-1.7127V4.9582H.9573C.3477 6.1732 0 7.5477 0 9s.3477 2.8268.9573 4.0418l3.0054-2.3291z"/>
+                <path fill="#EA4335" d="M9 3.5782c1.3214 0 2.5077.4541 3.4405 1.3459l2.5809-2.5809C13.4632.8918 11.43 0 9 0 5.4818 0 2.4382 2.0168.9573 4.9582l3.0054 2.3291C4.6718 5.1614 6.6559 3.5782 9 3.5782z"/>
+              </svg>
+            </span>
+            <span className="px-google-text">{authLoading ? "Opening Google..." : "Continue with Google"}</span>
+          </button>
+          <button className="px-pill-btn" type="button" style={{ width:"100%", marginTop:10 }} onClick={() => { setLoginRole(null); setAuthError(""); setAuthForm(createAuthForm()); }}>← Back</button>
+          <p className="px-auth-switch">{authMode === "signup" ? "Already have an account?" : "Need a new account?"} <button type="button" className="px-linkbtn" onClick={() => { setAuthMode((mode) => mode === "signup" ? "signin" : "signup"); setAuthError(""); }}>{authMode === "signup" ? "Sign in" : "Create one"}</button></p>
+        </form></div>
       )}
     </div></>);
   }
@@ -207,7 +707,13 @@ export default function PathOSApp() {
   const Header = (
     <div className="px-head">
       <div className="px-logo">PathOS<span>{roleLabel}</span></div>
-      <div className="px-rolechip">Signed in as {roleLabel}<button onClick={() => { setRole(null); setLoginRole(null); }}>Switch</button></div>
+      <div className="px-rolechip">
+        <span>{sessionBundle?.user?.email || `Signed in as ${roleLabel}`}</span>
+        {saveState === "saving" && <span className="px-chipmini">Saving…</span>}
+        {saveState === "saved" && <span className="px-chipmini ok">Saved</span>}
+        {saveState === "error" && <span className="px-chipmini err">Retrying</span>}
+        <button onClick={handleSignOut}>Sign out</button>
+      </div>
     </div>
   );
 
