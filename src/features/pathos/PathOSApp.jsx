@@ -25,110 +25,19 @@ import { Bars, Donut, St } from "./charts.jsx";
 import { LANDMARKS, Landmark, Tree, layoutNodes, mulberry, segPath, slug } from "./journey.jsx";
 import PostJobForm from "./components/PostJobForm.jsx";
 import { PATHOS_CSS } from "./styles.js";
-import { neonConfigError, neonEnabled } from "../../lib/neon";
 import {
-  fetchAccountProfile,
-  getSessionBundle,
-  signInWithEmail,
-  signInWithGoogle,
-  signOutAccount,
-  signUpWithEmail,
-  upsertAccountProfile,
-} from "./neonBackend";
+  DEMO_ACCOUNTS,
+  clearDemoSession,
+  fetchRemoteWorkspace,
+  readDemoSession,
+  readLocalWorkspace,
+  saveRemoteWorkspace,
+  writeDemoSession,
+  writeLocalWorkspace,
+} from "./demoPersistence";
 
 const DEFAULT_CURRENT_ROLE = "Commercial Manager";
 const DEFAULT_TARGET_ROLE = "CEO of a Creative Agency";
-const OAUTH_CONTEXT_KEY = "pathos-google-oauth-context";
-const DEMO_SESSION_KEY = "pathos-demo-session";
-const DEMO_PASSWORD = "demo12345";
-const DEMO_ACCOUNTS = {
-  seeker: {
-    role: "seeker",
-    name: "Demo Job Seeker",
-    email: "jobseeker.demo@pathos.app",
-    password: DEMO_PASSWORD,
-    organization: "PathOS Demo",
-  },
-  company: {
-    role: "company",
-    name: "Demo Hiring Manager",
-    email: "company.demo@pathos.app",
-    password: DEMO_PASSWORD,
-    organization: "Hatch & Co",
-  },
-  university: {
-    role: "university",
-    name: "Demo Programme Lead",
-    email: "university.demo@pathos.app",
-    password: DEMO_PASSWORD,
-    organization: "Universiti Malaya",
-  },
-};
-
-const createAuthForm = () => ({
-  name: "",
-  email: "",
-  password: "",
-  organization: "",
-});
-
-const readOAuthContext = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(OAUTH_CONTEXT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-const writeOAuthContext = (context) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.sessionStorage.setItem(OAUTH_CONTEXT_KEY, JSON.stringify(context));
-};
-
-const clearOAuthContext = () => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.sessionStorage.removeItem(OAUTH_CONTEXT_KEY);
-};
-
-const readDemoSession = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(DEMO_SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-const writeDemoSession = (session) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.sessionStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(session));
-};
-
-const clearDemoSession = () => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.sessionStorage.removeItem(DEMO_SESSION_KEY);
-};
 
 const normalizeWorkspace = (workspace = {}) => ({
   currentRole: typeof workspace.currentRole === "string" && workspace.currentRole.trim() ? workspace.currentRole : DEFAULT_CURRENT_ROLE,
@@ -154,21 +63,8 @@ const normalizeWorkspace = (workspace = {}) => ({
   applicants: Array.isArray(workspace.applicants) ? workspace.applicants : APPLICANTS_SEED,
 });
 
-const getDemoAccount = (role) => (role ? DEMO_ACCOUNTS[role] || null : null);
-
-const resolveDemoAccount = ({ role, email, password }) => {
-  const demoAccount = getDemoAccount(role);
-  if (!demoAccount) {
-    return null;
-  }
-
-  return email.trim().toLowerCase() === demoAccount.email && password === demoAccount.password
-    ? demoAccount
-    : null;
-};
-
-const createDemoWorkspace = (role) => {
-  if (role === "company") {
+const createDemoWorkspace = (demoRole) => {
+  if (demoRole === "company") {
     return normalizeWorkspace({
       cView: "dashboard",
       postedJobs: JOBS_SEED,
@@ -177,7 +73,7 @@ const createDemoWorkspace = (role) => {
     });
   }
 
-  if (role === "university") {
+  if (demoRole === "university") {
     return normalizeWorkspace({
       uView: "graduates",
     });
@@ -197,50 +93,20 @@ const createDemoWorkspace = (role) => {
     openToWork: true,
   });
 };
-
-const createDemoSessionBundle = (demoAccount) => ({
-  session: {
-    id: `demo-session-${demoAccount.role}`,
-    isDemo: true,
-  },
-  user: {
-    id: `demo-${demoAccount.role}`,
-    email: demoAccount.email,
-    name: demoAccount.name,
-  },
-});
-
-const createDemoProfile = (demoAccount) => ({
-  user_id: `demo-${demoAccount.role}`,
-  email: demoAccount.email,
-  full_name: demoAccount.name,
-  app_role: demoAccount.role,
-  organization: demoAccount.organization,
-  workspace: createDemoWorkspace(demoAccount.role),
-});
-
 export default function PathOSApp() {
   const [role, setRole] = useState(null); // null | seeker | company | university
-  const [loginRole, setLoginRole] = useState(null);
-  const [authReady, setAuthReady] = useState(!neonEnabled);
-  const [authMode, setAuthMode] = useState("signin");
-  const [authForm, setAuthForm] = useState(createAuthForm());
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState("");
+  const [hydrating, setHydrating] = useState(true);
   const [saveState, setSaveState] = useState("idle");
-  const [sessionBundle, setSessionBundle] = useState(null);
-  const [accountName, setAccountName] = useState("");
-  const [accountOrg, setAccountOrg] = useState("");
   const saveResetRef = useRef(null);
   const lastPersistedRef = useRef("");
 
   // seeker — inputs
-  const [currentRole, setCurrentRole] = useState(DEFAULT_CURRENT_ROLE);
+  const [currentRole, setCurrentRole] = useState("Commercial Manager");
   const [experience, setExperience] = useState("");
   const [education, setEducation] = useState("");
   const [skills, setSkills] = useState([]);
   const [skillInput, setSkillInput] = useState("");
-  const [targetRole, setTargetRole] = useState(DEFAULT_TARGET_ROLE);
+  const [targetRole, setTargetRole] = useState("CEO of a Creative Agency");
   const [targetIndustry, setTargetIndustry] = useState("");
   // seeker — analysis lifecycle
   const [status, setStatus] = useState("idle");
@@ -248,6 +114,7 @@ export default function PathOSApp() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState(null);
+  const [selBranch, setSelBranch] = useState(null);
   const [done, setDone] = useState(new Set());
   const [editPath, setEditPath] = useState(false);
   // seeker — profile
@@ -323,80 +190,12 @@ export default function PathOSApp() {
       postedJobs,
       hhFilter,
       applicants,
-    ]
+    ],
   );
 
-  const persistableAccount = useMemo(() => {
-    if (!sessionBundle?.user?.id || !role || sessionBundle?.session?.isDemo) {
-      return null;
-    }
-
-    return {
-      user_id: sessionBundle.user.id,
-      email: sessionBundle.user.email || "",
-      full_name:
-        accountName.trim() ||
-        sessionBundle.user.name ||
-        sessionBundle.user.email?.split("@")[0] ||
-        "PathOS user",
-      app_role: role,
-      organization: accountOrg.trim() || null,
-      workspace: workspaceSnapshot,
-    };
-  }, [accountName, accountOrg, role, sessionBundle, workspaceSnapshot]);
-
-  const resetWorkspace = () => {
-    const defaults = normalizeWorkspace();
-    setRole(null);
-    setLoginRole(null);
-    setCurrentRole(defaults.currentRole);
-    setExperience(defaults.experience);
-    setEducation(defaults.education);
-    setSkills(defaults.skills);
-    setSkillInput("");
-    setTargetRole(defaults.targetRole);
-    setTargetIndustry(defaults.targetIndustry);
-    setStatus("idle");
-    setStream("");
-    setData(defaults.data);
-    setError("");
-    setSelected(null);
-    setDone(new Set(defaults.done));
-    setEditPath(false);
-    setProfile(defaults.profile);
-    setParseStatus("idle");
-    setParseError("");
-    setPasteText("");
-    setShareMsg("");
-    setOpenToWork(defaults.openToWork);
-    setAssess(defaults.assess);
-    setAssessOut(defaults.assessOut);
-    setAssessLoading(false);
-    setApps(defaults.apps);
-    setAppView(defaults.appView);
-    setAppSel(defaults.appSel);
-    setView(defaults.view);
-    setCView(defaults.cView);
-    setUView(defaults.uView);
-    setPostedJobs(defaults.postedJobs);
-    setHhFilter(defaults.hhFilter);
-    setApplicants(defaults.applicants);
-  };
-
-  const applyAccountProfile = (account, nextSessionBundle) => {
-    const normalized = normalizeWorkspace(account?.workspace);
-    const nextRole = account?.app_role || loginRole || "seeker";
-
-    setSessionBundle(nextSessionBundle);
-    setRole(nextRole);
-    setLoginRole(null);
-    setAccountName(
-      account?.full_name ||
-      nextSessionBundle?.user?.name ||
-      nextSessionBundle?.user?.email?.split("@")[0] ||
-      ""
-    );
-    setAccountOrg(account?.organization || "");
+  const applyWorkspace = (demoRole, workspace) => {
+    const normalized = normalizeWorkspace(workspace);
+    setRole(demoRole);
     setCurrentRole(normalized.currentRole);
     setExperience(normalized.experience);
     setEducation(normalized.education);
@@ -409,6 +208,7 @@ export default function PathOSApp() {
     setData(normalized.data);
     setError("");
     setSelected(null);
+    setSelBranch(null);
     setDone(new Set(normalized.done));
     setEditPath(false);
     setProfile(normalized.profile);
@@ -429,106 +229,83 @@ export default function PathOSApp() {
     setPostedJobs(normalized.postedJobs);
     setHhFilter(normalized.hhFilter);
     setApplicants(normalized.applicants);
-
-    lastPersistedRef.current = JSON.stringify({
-      user_id: nextSessionBundle?.user?.id || "",
-      email: nextSessionBundle?.user?.email || "",
-      full_name:
-        account?.full_name ||
-        nextSessionBundle?.user?.name ||
-        nextSessionBundle?.user?.email?.split("@")[0] ||
-        "PathOS user",
-      app_role: nextRole,
-      organization: account?.organization || null,
-      workspace: normalized,
-    });
+    lastPersistedRef.current = JSON.stringify({ role: demoRole, workspace: normalized });
   };
 
-  const hydrateAccount = async (nextSessionBundle, hints = {}) => {
-    const existingAccount = await fetchAccountProfile(nextSessionBundle.user.id);
-    const account = existingAccount || {
-      user_id: nextSessionBundle.user.id,
-      email: nextSessionBundle.user.email || "",
-      full_name:
-        hints.name ||
-        nextSessionBundle.user.name ||
-        nextSessionBundle.user.email?.split("@")[0] ||
-        "PathOS user",
-      app_role: hints.role || loginRole || "seeker",
-      organization: hints.organization || null,
-      workspace: normalizeWorkspace(),
-    };
-
-    if (!existingAccount) {
-      await upsertAccountProfile(account);
-    }
-
-    applyAccountProfile(account, nextSessionBundle);
+  const resetWorkspace = () => {
+    const defaults = normalizeWorkspace();
+    setRole(null);
+    setCurrentRole(defaults.currentRole);
+    setExperience(defaults.experience);
+    setEducation(defaults.education);
+    setSkills(defaults.skills);
+    setSkillInput("");
+    setTargetRole(defaults.targetRole);
+    setTargetIndustry(defaults.targetIndustry);
+    setStatus("idle");
+    setStream("");
+    setData(defaults.data);
+    setError("");
+    setSelected(null);
+    setSelBranch(null);
+    setDone(new Set(defaults.done));
+    setEditPath(false);
+    setProfile(defaults.profile);
+    setParseStatus("idle");
+    setParseError("");
+    setPasteText("");
+    setShareMsg("");
+    setOpenToWork(defaults.openToWork);
+    setAssess(defaults.assess);
+    setAssessOut(defaults.assessOut);
+    setAssessLoading(false);
+    setApps(defaults.apps);
+    setAppView(defaults.appView);
+    setAppSel(defaults.appSel);
+    setView(defaults.view);
+    setCView(defaults.cView);
+    setUView(defaults.uView);
+    setPostedJobs(defaults.postedJobs);
+    setHhFilter(defaults.hhFilter);
+    setApplicants(defaults.applicants);
+    lastPersistedRef.current = "";
   };
 
-  const loadDemoAccount = (demoAccount) => {
+  const loadDemoRole = async (demoRole) => {
+    const demoAccount = DEMO_ACCOUNTS[demoRole];
     if (!demoAccount) {
       return;
     }
 
-    writeDemoSession({ role: demoAccount.role });
-    clearOAuthContext();
-    setAuthError("");
+    writeDemoSession(demoRole);
+    const localWorkspace = readLocalWorkspace(demoRole);
+    const remoteWorkspace = localWorkspace ? null : await fetchRemoteWorkspace(demoRole);
+    const workspace = localWorkspace || remoteWorkspace || createDemoWorkspace(demoRole);
+    applyWorkspace(demoRole, workspace);
     setSaveState("idle");
-    applyAccountProfile(createDemoProfile(demoAccount), createDemoSessionBundle(demoAccount));
-    setAuthForm(createAuthForm());
-    setAuthMode("signin");
-    setAuthReady(true);
+    setHydrating(false);
   };
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadSession = async () => {
+    const restoreDemo = async () => {
       const demoSession = readDemoSession();
-      const demoAccount = getDemoAccount(demoSession?.role);
-      if (demoAccount) {
-        loadDemoAccount(demoAccount);
+      if (!demoSession?.role || !DEMO_ACCOUNTS[demoSession.role]) {
+        clearDemoSession();
+        if (!cancelled) {
+          setHydrating(false);
+        }
         return;
       }
 
-      clearDemoSession();
-
-      if (!neonEnabled) {
-        setAuthReady(true);
-        return;
-      }
-
-      try {
-        const oauthContext = readOAuthContext();
-        const nextSessionBundle = await getSessionBundle();
-        if (cancelled) {
-          return;
-        }
-
-        if (!nextSessionBundle) {
-          clearDemoSession();
-          resetWorkspace();
-          setSessionBundle(null);
-          setAuthReady(true);
-          return;
-        }
-
-        await hydrateAccount(nextSessionBundle, oauthContext || {});
-        if (!cancelled) {
-          clearDemoSession();
-          clearOAuthContext();
-          setAuthReady(true);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setAuthError(err.message);
-          setAuthReady(true);
-        }
+      await loadDemoRole(demoSession.role);
+      if (!cancelled) {
+        setHydrating(false);
       }
     };
 
-    loadSession();
+    restoreDemo();
 
     return () => {
       cancelled = true;
@@ -539,11 +316,11 @@ export default function PathOSApp() {
   }, []);
 
   useEffect(() => {
-    if (!persistableAccount || !neonEnabled || !authReady) {
+    if (!role || hydrating) {
       return undefined;
     }
 
-    const serialized = JSON.stringify(persistableAccount);
+    const serialized = JSON.stringify({ role, workspace: workspaceSnapshot });
     if (serialized === lastPersistedRef.current) {
       return undefined;
     }
@@ -551,7 +328,16 @@ export default function PathOSApp() {
     const timer = setTimeout(async () => {
       try {
         setSaveState("saving");
-        await upsertAccountProfile(persistableAccount);
+        writeLocalWorkspace(role, workspaceSnapshot);
+        const demoAccount = DEMO_ACCOUNTS[role];
+        await saveRemoteWorkspace(role, {
+          user_id: `demo-${role}`,
+          email: demoAccount.email,
+          full_name: demoAccount.name,
+          app_role: role,
+          organization: demoAccount.organization,
+          workspace: workspaceSnapshot,
+        });
         lastPersistedRef.current = serialized;
         setSaveState("saved");
 
@@ -560,163 +346,30 @@ export default function PathOSApp() {
         }
 
         saveResetRef.current = setTimeout(() => setSaveState("idle"), 1600);
-      } catch (err) {
+      } catch {
         setSaveState("error");
-        setAuthError(err.message);
       }
     }, 700);
 
     return () => clearTimeout(timer);
-  }, [authReady, persistableAccount]);
+  }, [hydrating, role, workspaceSnapshot]);
 
-  const updateAuthForm = (field, value) => {
-    setAuthForm((current) => ({ ...current, [field]: value }));
-  };
-
-  const handleAuthSubmit = async (event) => {
-    event.preventDefault();
-    setAuthError("");
-
-    if (!neonEnabled) {
-      setAuthError(neonConfigError);
-      return;
-    }
-
-    if (!authForm.email.trim() || !authForm.password.trim()) {
-      setAuthError("Email and password are required.");
-      return;
-    }
-
-    const demoAccount = authMode === "signin"
-      ? resolveDemoAccount({
-          role: loginRole,
-          email: authForm.email,
-          password: authForm.password,
-        })
-      : null;
-
-    if (demoAccount) {
-      loadDemoAccount(demoAccount);
-      return;
-    }
-
-    if (authMode === "signup" && !loginRole) {
-      setAuthError("Choose whether this account is for a job seeker, company, or university first.");
-      return;
-    }
-
-    if (authMode === "signup" && !authForm.name.trim()) {
-      setAuthError("Add a name before creating your account.");
-      return;
-    }
-
-    setAuthLoading(true);
-
-    try {
-      let nextSessionBundle = null;
-
-      if (authMode === "signup") {
-        nextSessionBundle = await signUpWithEmail({
-          email: authForm.email.trim(),
-          password: authForm.password,
-          name: authForm.name.trim(),
-        });
-      } else {
-        nextSessionBundle = await signInWithEmail({
-          email: authForm.email.trim(),
-          password: authForm.password,
-        });
-      }
-
-      if (!nextSessionBundle) {
-        nextSessionBundle = await getSessionBundle();
-      }
-
-      if (!nextSessionBundle) {
-        throw new Error(
-          authMode === "signup"
-            ? "Account created, but Neon did not return a session. If email verification is enabled, verify the account and sign in again."
-            : "Signed in, but no session was returned."
-        );
-      }
-
-      await hydrateAccount(nextSessionBundle, {
-        name: authForm.name.trim(),
-        organization: authForm.organization.trim(),
-        role: loginRole || role || "seeker",
-      });
-
-      setAuthForm(createAuthForm());
-      setAuthMode("signin");
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setAuthLoading(false);
-      setAuthReady(true);
-    }
-  };
-
-  const handleGoogleAuth = async () => {
-    setAuthError("");
-
-    if (!neonEnabled) {
-      setAuthError(neonConfigError);
-      return;
-    }
-
-    if (!loginRole) {
-      setAuthError("Choose whether this account is for a job seeker, company, or university first.");
-      return;
-    }
-
-    setAuthLoading(true);
-
-    try {
-      writeOAuthContext({
-        role: loginRole || role || "seeker",
-        name: authForm.name.trim(),
-        organization: authForm.organization.trim(),
-      });
-
-      await signInWithGoogle({
-        callbackURL: `${window.location.origin}${window.location.pathname}`,
-      });
-    } catch (err) {
-      setAuthError(err.message);
-      setAuthLoading(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      if (neonEnabled) {
-        await signOutAccount();
-      }
-    } catch (err) {
-      setAuthError(err.message);
-    }
-
+  const switchRole = () => {
     if (saveResetRef.current) {
       clearTimeout(saveResetRef.current);
     }
 
-    lastPersistedRef.current = "";
-    clearOAuthContext();
     clearDemoSession();
+    lastPersistedRef.current = "";
     setSaveState("idle");
-    setSessionBundle(null);
-    setAccountName("");
-    setAccountOrg("");
-    setAuthMode("signin");
-    setAuthForm(createAuthForm());
     resetWorkspace();
-    setAuthReady(true);
+    setHydrating(false);
   };
 
   const addSkill = () => { const s = skillInput.trim(); if (s && !skills.includes(s)) setSkills(p => [...p, s]); setSkillInput(""); };
   const removeSkill = (s) => setSkills(p => p.filter(x => x !== s));
 
-  const W = 760;
+  const W = 900;
   const milestones = data?.milestones || [];
   const totalNodes = milestones.length + 2;
   const { nodes, height } = layoutNodes(totalNodes, W);
@@ -727,11 +380,15 @@ export default function PathOSApp() {
     try {
       let content;
       if (file) {
-        if (file.type === "application/pdf" || file.type.startsWith("image/")) throw new Error(DEEPSEEK_UNSUPPORTED_UPLOAD);
+        if (file.type === "application/pdf" || file.type.startsWith("image/")) {
+          throw new Error(DEEPSEEK_UNSUPPORTED_UPLOAD);
+        }
         const t = await file.text();
         content = `Extract my professional profile from this resume:\n\n${t}`;
-      } else { content = `Extract my professional profile from this resume:\n\n${pasteText}`; }
-      const res = await createDeepSeekMessage({ max_tokens:3000, system:PROFILE_SYS, messages:[{ role:"user", content }] });
+      } else {
+        content = `Extract my professional profile from this resume:\n\n${pasteText}`;
+      }
+      const res = await createDeepSeekMessage({ max_tokens: 3000, system: PROFILE_SYS, messages: [{ role: "user", content }] });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error?.message || "Parse error");
       const txt = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
@@ -750,10 +407,10 @@ export default function PathOSApp() {
   /* analysis */
   const generate = async () => {
     if (!currentRole.trim() || !targetRole.trim()) return;
-    setStatus("loading"); setStream(""); setData(null); setError(""); setSelected(null); setDone(new Set()); setView("analysis");
+    setStatus("loading"); setStream(""); setData(null); setError(""); setSelected(null); setSelBranch(null); setDone(new Set()); setView("analysis");
     const msg = `Current role: ${currentRole}\nExperience: ${experience || "not specified"}\nEducation: ${education || "not specified"}\nSkills: ${skills.length ? skills.join(", ") : "not specified"}\nTarget role: ${targetRole}\nTarget industry: ${targetIndustry || "not specified"}\n\nProduce the full analysis and illustrated journey.`;
     try {
-      const res = await createDeepSeekMessage({ max_tokens:5000, stream:true, system:SYS, messages:[{ role:"user", content:msg }] });
+      const res = await createDeepSeekMessage({ max_tokens: 5000, stream: true, system: SYS, messages: [{ role: "user", content: msg }] });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || "API error"); }
       const reader = res.body.getReader(), dec = new TextDecoder(); let acc = "";
       while (true) { const { done:d, value } = await reader.read(); if (d) break;
@@ -777,6 +434,15 @@ export default function PathOSApp() {
   const rand = mulberry(Math.round(height)); const scenery = [];
   for (let i = 0; i < Math.floor(height / 90); i++) { const side = rand() > .5 ? 1 : -1; scenery.push({ x: W / 2 + side * (W * .32 + rand() * W * .14), y: 80 + rand() * (height - 120), s: .7 + rand() * .7 }); }
   const sel = selected != null ? milestones[selected] : null;
+  const branches = data?.branches || [];
+  const selB = selBranch != null ? branches[selBranch] : null;
+  const branchPos = (b) => {
+    const anchor = nodes[(b.from_milestone ?? 0) + 1] || nodes[1] || nodes[0] || { x: W / 2, y: 120 };
+    const goRight = anchor.x >= W / 2;
+    const bx = goRight ? Math.min(W - 110, anchor.x + 205) : Math.max(110, anchor.x - 205);
+    const by = Math.min(height - 110, anchor.y + 36);
+    return { anchor, bx, by };
+  };
 
   /* editable pathway ops */
   const updateMilestone = (i, field, val) => setData(d => { const ms = d.milestones.map((m, k) => k === i ? { ...m, [field]: val } : m); return { ...d, milestones: ms }; });
@@ -786,7 +452,7 @@ export default function PathOSApp() {
   /* profile badges */
   const skillsList = profile?.skills?.length ? profile.skills : skills;
   const certBadges = profile?.certificates || [];
-  const earnedJourneyBadges = milestones.filter((_, i) => done.has(i)).map(m => ({ title: m.skill_unlocked || m.name, story: `Earned at "${m.name}" on your journey.`, metric:"Journey milestone" }));
+  const earnedJourneyBadges = milestones.filter((m, i) => done.has(i)).map(m => ({ title: m.skill_unlocked || m.name, story: `Earned at "${m.name}" on your journey.`, metric:"Journey milestone" }));
   const achievementBadges = [...(profile?.achievements || []), ...earnedJourneyBadges];
   const recCertBadges = data?.cert_recommendations || [];
   const expList = profile?.experience || [];
@@ -802,7 +468,7 @@ export default function PathOSApp() {
     setAssessLoading(true); setAssessOut(null);
     const summary = ASSESS_DEFS.map(d => { const v = assess[d.key]; if (!v || (Array.isArray(v) && !v.length)) return null; return `${d.name}: ${Array.isArray(v) ? v.join(", ") : v}`; }).filter(Boolean).join("\n");
     try {
-      const res = await createDeepSeekMessage({ max_tokens:1200, system:ASSESS_SYS, messages:[{ role:"user", content:`My assessment results:\n${summary}\n\nMy target role: ${targetRole}. Synthesize my holistic profile.` }] });
+      const res = await createDeepSeekMessage({ max_tokens: 1200, system: ASSESS_SYS, messages: [{ role: "user", content: `My assessment results:\n${summary}\n\nMy target role: ${targetRole}. Synthesize my holistic profile.` }] });
       const j = await res.json(); const txt = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
       setAssessOut(parseJSON(txt) || { summary: txt });
     } catch (e) { setAssessOut({ summary:"Couldn't synthesize: " + e.message }); }
@@ -815,74 +481,23 @@ export default function PathOSApp() {
   const applyToJob = (job) => { if (apps.some(a => a.title === job.title && a.company === job.company)) { setView("applications"); return; } const na = { id:"u"+Date.now(), title:job.title, company:job.company, status:"Applied", date:new Date().toISOString().slice(0,10), notes:"Applied via PathOS." }; setApps(p => [na, ...p]); setApplicants(p => [{ id:"x"+Date.now(), name: profile?.name || "You (PathOS user)", role: job.title, stage:"Applied", match: jobMatch(job), applied:"just now" }, ...p]); setView("applications"); };
   const setAppStatus = (id, st) => setApps(p => p.map(a => a.id === id ? { ...a, status: st } : a));
 
-  /* ── role landing / login ── */
-  const activeDemoAccount = getDemoAccount(loginRole);
-
-  if (!authReady) {
-    return (<><style>{PATHOS_CSS}</style><div className="px"><div className="px-state"><div className="px-spin"/><h3>Connecting your account…</h3><p>Checking Neon authentication and loading your saved PathOS workspace.</p></div></div></>);
+  /* ── demo role picker ── */
+  if (hydrating) {
+    return (<><style>{PATHOS_CSS}</style><div className="px"><div className="px-state"><div className="px-spin"/><h3>Loading your demo workspace…</h3></div></div></>);
   }
 
   if (!role) {
     return (<><style>{PATHOS_CSS}</style><div className="px">
-      <div className="px-head"><div className="px-logo">PathOS<span>Career Intelligence</span></div><div className="px-tagline" style={{fontSize:12,color:PAL.tealDark}}>One platform · three roles</div></div>
-      {!loginRole ? (
-        <div className="px-login">
-          <h1>Welcome to PathOS</h1>
-          <p className="sub">Choose the workspace you want to connect to Neon. Each account keeps its own saved data and authentication session.</p>
-          <div className="px-roles">
-            <div className="px-role" onClick={() => { setLoginRole("seeker"); setAuthMode("signin"); setAuthError(""); setAuthForm(createAuthForm()); }}><div className="ic">🧭</div><h3>Job Seeker</h3><p>Build a living profile, map your path to any role, track applications, and find aligned jobs.</p><div className="go">Use seeker account →</div></div>
-            <div className="px-role" onClick={() => { setLoginRole("company"); setAuthMode("signin"); setAuthError(""); setAuthForm(createAuthForm()); }}><div className="ic">🏢</div><h3>Company</h3><p>Post jobs, headhunt candidates before they apply, run team assessments, and manage your hiring pipeline.</p><div className="go">Use company account →</div></div>
-            <div className="px-role" onClick={() => { setLoginRole("university"); setAuthMode("signin"); setAuthError(""); setAuthForm(createAuthForm()); }}><div className="ic">🎓</div><h3>University</h3><p>Track graduate outcomes, map syllabus skills, and see employment analytics across batches.</p><div className="go">Use university account →</div></div>
-          </div>
+      <div className="px-head"><div className="px-logo">PathOS<span>Career Intelligence</span></div><div className="px-tagline" style={{fontSize:12,color:PAL.tealDark}}>One platform · three demo workspaces</div></div>
+      <div className="px-login">
+        <h1>Welcome to PathOS</h1>
+        <p className="sub">Choose a demo workspace. Each role keeps its own saved progress in this browser and syncs to Neon when configured.</p>
+        <div className="px-roles">
+          <button type="button" className="px-role" onClick={() => loadDemoRole("seeker")}><div className="ic">🧭</div><h3>Job Seeker</h3><p>Build a living profile, map your path to any role, track applications, and find aligned jobs.</p><div className="go">Open demo workspace →</div></button>
+          <button type="button" className="px-role" onClick={() => loadDemoRole("company")}><div className="ic">🏢</div><h3>Company</h3><p>Post jobs, headhunt candidates before they apply, run team assessments, and manage your hiring pipeline.</p><div className="go">Open demo workspace →</div></button>
+          <button type="button" className="px-role" onClick={() => loadDemoRole("university")}><div className="ic">🎓</div><h3>University</h3><p>Track graduate outcomes, map syllabus skills, and see employment analytics across batches.</p><div className="go">Open demo workspace →</div></button>
         </div>
-      ) : (
-        <div className="px-signin"><form className="card" onSubmit={handleAuthSubmit}>
-          <div className="ic">{loginRole === "seeker" ? "🧭" : loginRole === "company" ? "🏢" : "🎓"}</div>
-          <h2>{authMode === "signup" ? "Create your PathOS account" : "Sign in to PathOS"}</h2>
-          <p className="px-role-note">Workspace: {loginRole === "seeker" ? "Job Seeker" : loginRole === "company" ? "Company" : "University"}</p>
-          {!neonEnabled && <div className="px-alert warn">{neonConfigError}</div>}
-          {authError && <div className="px-alert">{authError}</div>}
-          {authMode === "signin" && activeDemoAccount && (
-            <div className="px-demo-box">
-              <div className="px-demo-head">
-                <span>Demo account</span>
-                <button
-                  type="button"
-                  className="px-linkbtn"
-                  onClick={() => loadDemoAccount(activeDemoAccount)}
-                >
-                  Load demo workspace
-                </button>
-              </div>
-              <p>Use these credentials to open the seeded {loginRole === "seeker" ? "job seeker" : loginRole} mock workspace.</p>
-              <div className="px-demo-cred"><span>Email</span><code>{activeDemoAccount.email}</code></div>
-              <div className="px-demo-cred"><span>Password</span><code>{activeDemoAccount.password}</code></div>
-            </div>
-          )}
-          {authMode === "signup" && (
-            <>
-              <div className="px-field"><label>Full name</label><input value={authForm.name} onChange={(e) => updateAuthForm("name", e.target.value)} placeholder={loginRole === "company" ? "Hiring manager name" : loginRole === "university" ? "Programme lead name" : "Your full name"} /></div>
-              <div className="px-field"><label>Organisation {loginRole === "seeker" ? "(optional)" : ""}</label><input value={authForm.organization} onChange={(e) => updateAuthForm("organization", e.target.value)} placeholder={loginRole === "company" ? "e.g. Hatch & Co" : loginRole === "university" ? "e.g. Universiti Malaya" : "Current employer"} /></div>
-            </>
-          )}
-          <div className="px-field"><label>{loginRole === "company" ? "Work email" : loginRole === "university" ? "Institution email" : "Email"}</label><input type="email" value={authForm.email} onChange={(e) => updateAuthForm("email", e.target.value)} placeholder={loginRole === "company" ? "you@company.com" : loginRole === "university" ? "you@university.edu" : "you@email.com"} autoComplete="email" /></div>
-          <div className="px-field"><label>Password</label><input type="password" value={authForm.password} onChange={(e) => updateAuthForm("password", e.target.value)} placeholder="Use at least 8 characters" autoComplete={authMode === "signup" ? "new-password" : "current-password"} /></div>
-          <button className="px-go" type="submit" disabled={authLoading || (authMode === "signup" && !neonEnabled)}>{authLoading ? "Connecting…" : authMode === "signup" ? "Create account & continue →" : "Sign in & load workspace →"}</button>
-          <button className="px-google-btn" type="button" onClick={handleGoogleAuth} disabled={authLoading || !neonEnabled}>
-            <span className="px-google-mark" aria-hidden="true">
-              <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-                <path fill="#4285F4" d="M17.64 9.2045c0-.6382-.0573-1.2518-.1636-1.8409H9v3.4818h4.8436c-.2087 1.125-.8427 2.0782-1.7968 2.7164v2.2582h2.9086c1.7018-1.5664 2.6846-3.8741 2.6846-6.6155z"/>
-                <path fill="#34A853" d="M9 18c2.43 0 4.4673-.8064 5.9564-2.1791l-2.9086-2.2582c-.8064.54-1.8377.8591-3.0477.8591-2.3441 0-4.3282-1.5832-5.0373-3.7091H.9573v2.3291C2.4382 15.9832 5.4818 18 9 18z"/>
-                <path fill="#FBBC05" d="M3.9627 10.7127C3.7827 10.1727 3.6818 9.5959 3.6818 9s.1009-1.1727.2809-1.7127V4.9582H.9573C.3477 6.1732 0 7.5477 0 9s.3477 2.8268.9573 4.0418l3.0054-2.3291z"/>
-                <path fill="#EA4335" d="M9 3.5782c1.3214 0 2.5077.4541 3.4405 1.3459l2.5809-2.5809C13.4632.8918 11.43 0 9 0 5.4818 0 2.4382 2.0168.9573 4.9582l3.0054 2.3291C4.6718 5.1614 6.6559 3.5782 9 3.5782z"/>
-              </svg>
-            </span>
-            <span className="px-google-text">{authLoading ? "Opening Google..." : "Continue with Google"}</span>
-          </button>
-          <button className="px-pill-btn" type="button" style={{ width:"100%", marginTop:10 }} onClick={() => { setLoginRole(null); setAuthError(""); setAuthForm(createAuthForm()); }}>← Back</button>
-          <p className="px-auth-switch">{authMode === "signup" ? "Already have an account?" : "Need a new account?"} <button type="button" className="px-linkbtn" onClick={() => { setAuthMode((mode) => mode === "signup" ? "signin" : "signup"); setAuthError(""); }}>{authMode === "signup" ? "Sign in" : "Create one"}</button></p>
-        </form></div>
-      )}
+      </div>
     </div></>);
   }
 
@@ -891,11 +506,11 @@ export default function PathOSApp() {
     <div className="px-head">
       <div className="px-logo">PathOS<span>{roleLabel}</span></div>
       <div className="px-rolechip">
-        <span>{sessionBundle?.user?.email || `Signed in as ${roleLabel}`}</span>
+        <span>Demo · {DEMO_ACCOUNTS[role]?.name || roleLabel}</span>
         {saveState === "saving" && <span className="px-chipmini">Saving…</span>}
         {saveState === "saved" && <span className="px-chipmini ok">Saved</span>}
         {saveState === "error" && <span className="px-chipmini err">Retrying</span>}
-        <button onClick={handleSignOut}>Sign out</button>
+        <button onClick={switchRole}>Switch</button>
       </div>
     </div>
   );
@@ -921,14 +536,14 @@ export default function PathOSApp() {
             <div className="px-intro"><h1>Your profile is your CV</h1><p className="sub">Upload a text resume or paste your resume text and PathOS builds a living profile automatically — certificates become skill badges, achievements become success-story badges. Share it as a link for any job application.</p></div>
             <div className="px-up"><div className="ic">📄</div><h3>Upload your resume / CV</h3><p>Text file or pasted text. PathOS reads it and captures everything into your profile.</p>
               <input ref={fileRef} type="file" accept=".txt,.md" style={{display:"none"}} onChange={onFile} />
-              <button className="px-up-btn" onClick={() => fileRef.current?.click()}>Choose file to upload</button>
+              <button className="px-up-btn" onClick={() => fileRef.current?.click()}>Choose text file to upload</button>
               {parseStatus === "error" && <p style={{color:PAL.terra,marginTop:12}}>{parseError}</p>}
               <div className="px-or">— or paste your resume text —</div>
               <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder="Paste resume text here…" style={{width:"100%",minHeight:100,padding:11,border:`1.5px solid ${PAL.creamLow}`,borderRadius:8,fontFamily:"inherit",fontSize:13,lineHeight:1.5}} />
               <button className="px-go" style={{maxWidth:240,margin:"10px auto 0"}} disabled={!pasteText.trim()} onClick={() => parseResume(null)}>Build my profile ✦</button>
             </div>
           </>)}
-          {parseStatus === "parsing" && <div className="px-state"><div className="px-spin"/><h3>Reading your resume…</h3><p>Extracting your experience, skills, certificates, and achievements.</p></div>}
+          {parseStatus === "parsing" && <div className="px-state"><div className="px-spin"/><h3>Reading your resume…</h3><p>PathOS is extracting your experience, skills, certificates, and achievements.</p></div>}
           {profile && parseStatus !== "parsing" && (<>
             <div className="px-prof-head">
               <div className="px-prof-name">{profile.name || "Your name"}</div>
@@ -1003,7 +618,7 @@ export default function PathOSApp() {
             </div>
           </div>
         )}
-        {status === "loading" && <div className="px-state"><div className="px-spin"/><h3>Charting your path…</h3><p>Scoring your readiness, finding gaps, and plotting milestones.</p>{stream && <div className="px-stream" ref={streamEnd}>{stream}</div>}</div>}
+        {status === "loading" && <div className="px-state"><div className="px-spin"/><h3>Charting your path…</h3><p>PathOS is scoring your readiness, finding gaps, and plotting milestones.</p>{stream && <div className="px-stream" ref={streamEnd}>{stream}</div>}</div>}
         {status === "error" && <div className="px-state"><h3 style={{color:PAL.terra}}>Something went wrong</h3><p>{error}</p><button className="px-go" style={{maxWidth:220}} onClick={generate}>Try again</button></div>}
         {status === "done" && data && (
           <div className="px-wrap">
@@ -1024,6 +639,22 @@ export default function PathOSApp() {
                 <div key={i} style={{display:"flex",gap:10,alignItems:"flex-start"}}><span className="px-keynum" style={{background:done.has(i)?PAL.tealDark:PAL.terra}}>{done.has(i)?"✓":i+1}</span><div><div style={{fontSize:13,fontWeight:600}}>{m.name} <span style={{fontWeight:400,color:PAL.inkSoft}}>· {m.timeline}</span></div><div style={{fontSize:12.5,color:PAL.inkSoft,lineHeight:1.5}}>{m.action}</div></div></div>
               ))}{editPath && <button className="px-pill-btn" onClick={addMilestone}>+ Add milestone</button>}</div>
             </div>
+            {data.branches?.length > 0 && (
+              <div className="px-sec"><div className="px-sec-h"><span>🌿</span><b>Branching possibilities</b><span className="ct">{data.branches.length}</span></div>
+                <div className="px-sec-b">
+                  <p className="px-mini">Lateral moves your transferable skills also unlock. Each forks from a milestone on your path — explore one to re-map your journey toward it.</p>
+                  {data.branches.map((b, i) => (
+                    <div key={i} style={{ border:`1.5px solid #cdddE7`, borderLeft:`3px solid ${PAL.blue}`, borderRadius:8, padding:11, background:PAL.blueBg }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:PAL.blue }}>{b.alt_role} <span style={{ fontWeight:400, color:PAL.inkSoft }}>· via {b.label}</span></div>
+                      <div style={{ fontSize:12.5, color:PAL.ink, lineHeight:1.55, margin:"4px 0" }}>{b.rationale}</div>
+                      {(b.transferable_skills||[]).length > 0 && <div className="px-skchips" style={{ margin:"6px 0" }}>{b.transferable_skills.map((s, k) => <span key={k} className="px-skchip">{s}</span>)}</div>}
+                      {(b.extra_steps||[]).length > 0 && <div className="px-mini" style={{ marginBottom:6 }}>Extra step: {(b.extra_steps||[]).join("; ")}</div>}
+                      <button className="px-pill-btn" style={{ background:PAL.blue, color:"#fff", borderColor:PAL.blue, padding:"7px 12px" }} onClick={() => { setTargetRole(b.alt_role); generate(); }}>Explore this path →</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <button className="px-cta" onClick={() => setView("journey")}>Start your quest →  {data.destination_label || targetRole}</button>
           </div>
         )}
@@ -1043,17 +674,36 @@ export default function PathOSApp() {
               <g filter="url(#wob)">{nodes.slice(0,-1).map((n,i) => { const lit = reached(i) && reached(i+1); return <path key={i} d={segPath(n,nodes[i+1],i%2===0)} fill="none" stroke={lit?PAL.terra:PAL.terraDark} strokeOpacity={lit?1:.4} strokeWidth="6" strokeLinecap="round" strokeDasharray={lit?"0":"2 12"}/>; })}</g>
               {nodes.map((n,i) => { const isStart = i===0, isDest = i===totalNodes-1, mi = i-1; const type = isStart?"cottage":isDest?"summit":(milestones[mi]?.scene_type||"office"); const r = reached(i), markerY = n.y-(LANDMARKS[type]?.rise||130), clickable = !isStart && !isDest; return (
                 <g key={i}><g transform={`translate(${n.x},${n.y})`} filter="url(#wob)"><Landmark type={type}/></g>
-                  <g transform={`translate(${n.x},${markerY})`} style={{cursor:clickable?"pointer":"default"}} onClick={() => clickable && setSelected(mi)}><line x1="0" y1="6" x2="0" y2="20" stroke={PAL.ink} strokeWidth="2"/><circle cx="0" cy="0" r="16" fill={r?PAL.tealDark:PAL.terra} stroke={PAL.ink} strokeWidth="2.5"/><text x="0" y="5" textAnchor="middle" fontFamily="Fredoka" fontWeight="700" fontSize="15" fill="#fff">{isStart?"S":isDest?"★":(r?"✓":mi+1)}</text></g>
+                  <g transform={`translate(${n.x},${markerY})`} style={{cursor:clickable?"pointer":"default"}} onClick={() => { if (clickable) { setSelected(mi); setSelBranch(null); } }}><line x1="0" y1="6" x2="0" y2="20" stroke={PAL.ink} strokeWidth="2"/><circle cx="0" cy="0" r="16" fill={r?PAL.tealDark:PAL.terra} stroke={PAL.ink} strokeWidth="2.5"/><text x="0" y="5" textAnchor="middle" fontFamily="Fredoka" fontWeight="700" fontSize="15" fill="#fff">{isStart?"S":isDest?"★":(r?"✓":mi+1)}</text></g>
                   <text x={n.x} y={markerY-24} textAnchor="middle" fontFamily="Fredoka" fontWeight="600" fontSize={isDest?17:13} fill={isDest?PAL.terra:PAL.ink}>{isStart?(data.start_label||currentRole):isDest?(data.destination_label||targetRole):milestones[mi]?.name}</text></g>); })}
+              {branches.map((b, bi) => {
+                const { anchor, bx, by } = branchPos(b);
+                const type = b.scene_type || "office";
+                const markerY = by - (LANDMARKS[type]?.rise || 130);
+                return (
+                  <g key={"br" + bi}>
+                    <path d={segPath(anchor, { x: bx, y: by }, anchor.x < bx)} fill="none" stroke={PAL.blue} strokeOpacity="0.7" strokeWidth="4" strokeDasharray="6 8" strokeLinecap="round" filter="url(#wob)" />
+                    <g transform={`translate(${bx},${by})`} filter="url(#wob)" opacity="0.92"><Landmark type={type} /></g>
+                    <g transform={`translate(${bx},${markerY})`} style={{ cursor: "pointer" }} onClick={() => { setSelBranch(bi); setSelected(null); }}>
+                      <line x1="0" y1="6" x2="0" y2="20" stroke={PAL.ink} strokeWidth="2" />
+                      <rect x="-13" y="-13" width="26" height="26" rx="4" transform="rotate(45)" fill={PAL.blue} stroke={PAL.ink} strokeWidth="2.5" />
+                      <text x="0" y="5" textAnchor="middle" fontFamily="Fredoka" fontWeight="700" fontSize="13" fill="#fff">✦</text>
+                    </g>
+                    <text x={bx} y={markerY-24} textAnchor="middle" fontFamily="Fredoka" fontWeight="600" fontSize="12.5" fill={PAL.blue}>{b.label}</text>
+                    <text x={bx} y={markerY-9} textAnchor="middle" fontFamily="DM Sans" fontSize="10.5" fill={PAL.inkSoft}>alt: {b.alt_role}</text>
+                  </g>
+                );
+              })}
             </svg>
             {sel && (<div className="px-sheet"><button className="px-sheet-x" onClick={() => setSelected(null)}>×</button><span className="px-sheet-tag">Stop {selected+1} · {sel.timeline}</span><div className="px-sheet-nm">{sel.name}</div><div className="px-sheet-ac">{sel.action}</div><p className="px-sheet-dt">{sel.detail}</p><div className="px-chips">{sel.skill_unlocked && <div className="px-chip"><b>Skill unlocked</b>{sel.skill_unlocked}</div>}{sel.gap_closed && <div className="px-chip"><b>Closes gap</b>{sel.gap_closed}</div>}{sel.cert && <div className="px-chip"><b>Certification</b>{sel.cert}</div>}</div><button className={`px-reach ${done.has(selected)?"done":"todo"}`} onClick={() => toggleDone(selected)}>{done.has(selected)?"✓ Reached · +150 XP · badge earned":"Mark this milestone reached"}</button></div>)}
+            {selB && (<div className="px-sheet"><button className="px-sheet-x" onClick={() => setSelBranch(null)}>×</button><span className="px-sheet-tag" style={{background:PAL.blue}}>Alternative path · transferable</span><div className="px-sheet-nm">{selB.label}</div><div className="px-sheet-ac" style={{color:PAL.blue}}>→ {selB.alt_role}</div><p className="px-sheet-dt">{selB.rationale}</p><div className="px-chips">{(selB.transferable_skills||[]).length>0 && <div className="px-chip"><b>Transfers from your path</b>{(selB.transferable_skills||[]).join(", ")}</div>}{(selB.extra_steps||[]).length>0 && <div className="px-chip"><b>Extra step to pivot</b>{(selB.extra_steps||[]).join("; ")}</div>}</div><button className="px-reach todo" style={{background:PAL.blue}} onClick={() => { setTargetRole(selB.alt_role); setSelBranch(null); generate(); }}>Pursue this path → re-map journey</button></div>)}
           </div>
           <div className="px-rail">
             <span className="px-rail-link" onClick={() => setView("analysis")}>← Back to analysis</span>
             {allDone && <div className="px-banner">🎉 Journey complete — {liveReadiness}% ready for {data.destination_label || targetRole}!</div>}
             {done.size > 0 && <div className="px-rail-link" style={{color:PAL.gold}} onClick={() => setView("profile")}>✦ {done.size} badge{done.size>1?"s":""} earned — view on profile →</div>}
             <div><div className="px-prog-l"><span>Journey progress</span><span>{done.size}/{milestones.length}</span></div><div className="px-track"><div className="px-fill" style={{width:pct+"%"}}/></div><div className="px-xp">✦ {xp} XP earned</div></div>
-            <div><div className="px-key">KEY</div><ul className="px-keylist"><li className="px-keyitem done"><span className="px-keynum">S</span><span>{data.start_label||currentRole} — start</span></li>{milestones.map((m,i) => <li key={i} className={`px-keyitem ${done.has(i)?"done":""}`} onClick={() => setSelected(i)}><span className="px-keynum">{done.has(i)?"✓":i+1}</span><span>{m.name}</span></li>)}<li className={`px-keyitem ${allDone?"done":""}`}><span className="px-keynum" style={{background:PAL.gold}}>★</span><span>{data.destination_label||targetRole} — goal</span></li></ul></div>
+            <div><div className="px-key">KEY</div><ul className="px-keylist"><li className="px-keyitem done"><span className="px-keynum">S</span><span>{data.start_label||currentRole} — start</span></li>{milestones.map((m,i) => <li key={i} className={`px-keyitem ${done.has(i)?"done":""}`} onClick={() => { setSelected(i); setSelBranch(null); }}><span className="px-keynum">{done.has(i)?"✓":i+1}</span><span>{m.name}</span></li>)}<li className={`px-keyitem ${allDone?"done":""}`}><span className="px-keynum" style={{background:PAL.gold}}>★</span><span>{data.destination_label||targetRole} — goal</span></li></ul>{branches.length>0 && <div className="px-mini" style={{marginTop:8,color:PAL.blue}}>✦ Dashed blue markers are alternative paths your transferable skills unlock — tap one to explore or pursue it.</div>}</div>
           </div>
         </div>
       ))}

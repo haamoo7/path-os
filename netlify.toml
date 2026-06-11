@@ -7,3 +7,8 @@
   from = "/api/deepseek/v1/messages"
   to = "/.netlify/functions/deepseek-messages"
   status = 200
+
+[[redirects]]
+  from = "/api/demo-workspace"
+  to = "/.netlify/functions/demo-workspace"
+  status = 200

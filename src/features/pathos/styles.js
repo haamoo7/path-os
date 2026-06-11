@@ -1,6 +1,5 @@
 import { PAL } from "./constants";
 
-/* ─── styles ─── */
 export const PATHOS_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=DM+Sans:wght@400;500&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -13,37 +12,17 @@ export const PATHOS_CSS = `
 .px-chipmini{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:${PAL.creamMid};font-size:11px;color:${PAL.inkSoft};}
 .px-chipmini.ok{background:${PAL.goodBg};color:${PAL.good};}
 .px-chipmini.err{background:${PAL.gapBg};color:${PAL.gap};}
-/* login */
 .px-login{max-width:880px;margin:0 auto;padding:2.5rem 1.5rem 3rem;}
 .px-login h1{font-family:'Fredoka';font-weight:700;font-size:32px;text-align:center;margin-bottom:.3rem;}
 .px-login p.sub{text-align:center;font-size:14px;color:${PAL.inkSoft};margin-bottom:2rem;}
 .px-roles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
 @media(max-width:760px){.px-roles{grid-template-columns:1fr;}}
-.px-role{background:${PAL.paper};border:2px solid ${PAL.ink};border-radius:16px;padding:1.5rem;cursor:pointer;transition:.15s;display:flex;flex-direction:column;gap:8px;}
+.px-role{background:${PAL.paper};border:2px solid ${PAL.ink};border-radius:16px;padding:1.5rem;cursor:pointer;transition:.15s;display:flex;flex-direction:column;gap:8px;text-align:left;font:inherit;color:inherit;}
 .px-role:hover{transform:translateY(-3px);box-shadow:0 8px 22px rgba(40,55,48,.18);}
 .px-role .ic{font-size:34px;}
 .px-role h3{font-family:'Fredoka';font-weight:700;font-size:19px;}
 .px-role p{font-size:12.5px;color:${PAL.inkSoft};line-height:1.55;}
 .px-role .go{margin-top:auto;font-family:'Fredoka';font-weight:600;font-size:13px;color:${PAL.terra};}
-.px-signin{max-width:420px;margin:0 auto;padding:3rem 1.5rem;}
-.px-signin .card{background:${PAL.paper};border:2px solid ${PAL.ink};border-radius:16px;padding:2rem;}
-.px-signin .ic{font-size:40px;text-align:center;}
-.px-signin h2{font-family:'Fredoka';font-weight:700;font-size:22px;text-align:center;margin:.5rem 0 1.25rem;}
-.px-role-note{text-align:center;font-size:12px;color:${PAL.tealDark};font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:-.55rem 0 1rem;}
-.px-alert{margin-bottom:1rem;padding:10px 12px;border:1.5px solid #dfb6ac;border-radius:10px;background:${PAL.gapBg};color:${PAL.gap};font-size:12.5px;line-height:1.55;}
-.px-alert.warn{background:${PAL.warnBg};border-color:#e5d39d;color:${PAL.goldDeep};}
-.px-demo-box{margin-bottom:1rem;padding:12px;border:1.5px solid ${PAL.creamLow};border-radius:12px;background:#fff;}
-.px-demo-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;}
-.px-demo-head span{font-family:'Fredoka';font-size:13px;font-weight:600;color:${PAL.terra};}
-.px-demo-box p{font-size:12px;color:${PAL.inkSoft};line-height:1.55;margin-bottom:10px;}
-.px-demo-cred{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:8px;background:${PAL.paperDark};font-size:11.5px;}
-.px-demo-cred + .px-demo-cred{margin-top:8px;}
-.px-demo-cred span{font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:${PAL.tealDark};}
-.px-demo-cred code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:${PAL.ink};}
-.px-auth-switch{text-align:center;font-size:12px;color:${PAL.inkSoft};margin-top:12px;line-height:1.5;}
-.px-linkbtn{border:none;background:none;color:${PAL.terra};font:inherit;font-weight:600;cursor:pointer;padding:0;}
-.px-linkbtn:hover{text-decoration:underline;}
-/* generic */
 .px-field{margin-bottom:1.1rem;}
 .px-field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:${PAL.tealDark};margin-bottom:5px;}
 .px-field input,.px-field textarea,.px-field select{width:100%;padding:10px 12px;border:1.5px solid ${PAL.creamLow};border-radius:8px;font:inherit;font-size:13px;background:#fff;outline:none;}
@@ -51,13 +30,6 @@ export const PATHOS_CSS = `
 .px-field textarea{resize:vertical;min-height:74px;line-height:1.5;}
 .px-go{width:100%;padding:13px;background:${PAL.terra};color:#fff;border:none;border-radius:10px;font-family:'Fredoka';font-weight:600;font-size:15px;cursor:pointer;}
 .px-go:hover:not(:disabled){background:${PAL.terraDark};}.px-go:disabled{opacity:.5;cursor:not-allowed;}
-.px-google-btn{width:100%;margin-top:10px;padding:11px 14px;border:1.5px solid #dadce0;border-radius:10px;background:#fff;color:#3c4043;font-family:'DM Sans',system-ui,sans-serif;font-weight:500;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;box-shadow:0 1px 2px rgba(60,64,67,.1);}
-.px-google-btn:hover:not(:disabled){background:#f8f9fa;border-color:#c7c9cc;box-shadow:0 1px 3px rgba(60,64,67,.18);}
-.px-google-btn:focus-visible{outline:2px solid #1a73e8;outline-offset:2px;}
-.px-google-btn:disabled{opacity:.6;cursor:not-allowed;box-shadow:none;}
-.px-google-mark{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex-shrink:0;}
-.px-google-mark svg{display:block;width:20px;height:20px;}
-.px-google-text{line-height:1;}
 .px-card{background:${PAL.paper};border:2px solid ${PAL.ink};border-radius:16px;padding:1.5rem;}
 .px-skillrow{display:flex;gap:6px;}.px-skillrow input{flex:1;}
 .px-add{padding:8px 14px;border:1.5px solid ${PAL.creamLow};border-radius:8px;background:${PAL.paperDark};font:inherit;font-weight:500;font-size:13px;cursor:pointer;}
@@ -178,7 +150,6 @@ export const PATHOS_CSS = `
 .px-exp-item{border-left:2px solid ${PAL.creamLow};padding-left:12px;}
 .px-exp-r{font-size:13.5px;font-weight:600;}.px-exp-c{font-size:12px;color:${PAL.inkSoft};margin-bottom:4px;}
 .px-exp-hl{font-size:12.5px;line-height:1.6;margin:2px 0 0 16px;}
-/* row lists */
 .px-row{display:flex;gap:12px;align-items:center;padding:12px;border:1.5px solid ${PAL.creamLow};border-radius:10px;background:#fff;}
 .px-row .av{width:40px;height:40px;border-radius:50%;background:${PAL.creamMid};display:flex;align-items:center;justify-content:center;font-family:'Fredoka';font-weight:700;color:${PAL.tealDark};flex-shrink:0;}
 .px-row .main{flex:1;min-width:0;}
